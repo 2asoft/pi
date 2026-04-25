@@ -215,6 +215,24 @@ Filter what a package loads using the object form in settings:
 - `-path` force-excludes an exact path.
 - Filters layer on top of the manifest. They narrow down what is already allowed.
 
+When object-form git package config sets `extensions` to `[]`, pi treats the package as static-resource-only and skips the post-clone/update `npm install` step even if the repository has a `package.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/ChromeDevTools/chrome-devtools-mcp",
+      "extensions": [],
+      "skills": ["skills/chrome-devtools", "skills/chrome-devtools-cli"],
+      "prompts": [],
+      "themes": []
+    }
+  ]
+}
+```
+
+If a git package needs dependencies for executable code, do not disable `extensions`; Pi installs dependencies for packages that may load extensions.
+
 ## Enable and Disable Resources
 
 Use `pi config` to enable or disable extensions, skills, prompt templates, and themes from installed packages and local directories. `pi config` starts in global settings (`~/.pi/agent/settings.json`); press Tab to switch between global and project-local modes. Use `pi config -l` to start in project overrides (`.pi/settings.json`) with inherited global resources dimmed.
