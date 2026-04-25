@@ -146,6 +146,7 @@ type InstalledSourceScope = Exclude<SourceScope, "temporary">;
 interface ConfiguredUpdateSource {
 	source: string;
 	scope: InstalledSourceScope;
+	installDependencies: boolean;
 }
 
 interface NpmUpdateTarget extends ConfiguredUpdateSource {
@@ -1040,13 +1041,21 @@ export class DefaultPackageManager implements PackageManager {
 			const sourceStr = typeof pkg === "string" ? pkg : pkg.source;
 			if (identity && this.getPackageIdentity(sourceStr, "user") !== identity) continue;
 			matched = true;
-			updateSources.push({ source: sourceStr, scope: "user" });
+			updateSources.push({
+				source: sourceStr,
+				scope: "user",
+				installDependencies: this.shouldInstallDependencies(pkg),
+			});
 		}
 		for (const pkg of projectSettings.packages ?? []) {
 			const sourceStr = typeof pkg === "string" ? pkg : pkg.source;
 			if (identity && this.getPackageIdentity(sourceStr, "project") !== identity) continue;
 			matched = true;
-			updateSources.push({ source: sourceStr, scope: "project" });
+			updateSources.push({
+				source: sourceStr,
+				scope: "project",
+				installDependencies: this.shouldInstallDependencies(pkg),
+			});
 		}
 
 		if (source && !matched) {
@@ -1111,7 +1120,7 @@ export class DefaultPackageManager implements PackageManager {
 			const gitTasks = gitCandidates.map(
 				(entry) => async () =>
 					this.withProgress("update", entry.source, `Updating ${entry.source}...`, async () => {
-						await this.updateGit(entry.parsed, entry.scope);
+						await this.updateGit(entry.parsed, entry.scope, entry.installDependencies);
 					}),
 			);
 			tasks.push(this.runWithConcurrency(gitTasks, GIT_UPDATE_CONCURRENCY).then(() => {}));
@@ -1244,13 +1253,13 @@ export class DefaultPackageManager implements PackageManager {
 			const installMissing = async (): Promise<boolean> => {
 				if (isOfflineModeEnabled()) return false;
 				if (!onMissing) {
-					await this.installParsedSource(parsed, resolvedScope);
+					await this.installParsedSource(parsed, resolvedScope, this.shouldInstallDependencies(pkg));
 					return true;
 				}
 				const action = await onMissing(resolvedSource);
 				if (action === "skip") return false;
 				if (action === "error") throw new Error(`Missing source: ${resolvedSource}`);
-				await this.installParsedSource(parsed, resolvedScope);
+				await this.installParsedSource(parsed, resolvedScope, this.shouldInstallDependencies(pkg));
 				return true;
 			};
 
@@ -1328,19 +1337,31 @@ export class DefaultPackageManager implements PackageManager {
 		}
 	}
 
-	private async installParsedSource(parsed: ParsedSource, scope: SourceScope): Promise<void> {
+	private async installParsedSource(
+		parsed: ParsedSource,
+		scope: SourceScope,
+		installDependencies = true,
+	): Promise<void> {
 		if (parsed.type === "npm") {
 			await this.installNpm(parsed, scope, scope === "temporary");
 			return;
 		}
 		if (parsed.type === "git") {
-			await this.installGit(parsed, scope);
+			await this.installGit(parsed, scope, installDependencies);
 			return;
 		}
 	}
 
 	private getPackageSourceString(pkg: PackageSource): string {
 		return typeof pkg === "string" ? pkg : pkg.source;
+	}
+
+	private shouldInstallDependencies(pkg: PackageSource): boolean {
+		return typeof pkg === "string" || !this.loadsOnlyStaticResources(pkg);
+	}
+
+	private loadsOnlyStaticResources(pkg: Exclude<PackageSource, string>): boolean {
+		return Array.isArray(pkg.extensions) && pkg.extensions.length === 0;
 	}
 
 	private getSourceMatchKeyForInput(source: string): string {
@@ -1801,15 +1822,15 @@ export class DefaultPackageManager implements PackageManager {
 		await this.runNpmCommand(args);
 	}
 
-	private async installGit(source: GitSource, scope: SourceScope): Promise<void> {
+	private async installGit(source: GitSource, scope: SourceScope, installDependencies = true): Promise<void> {
 		const targetDir = this.getGitInstallPath(source, scope);
 		if (existsSync(targetDir)) {
 			if (source.ref) {
-				await this.ensureGitRef(targetDir, ["fetch", "origin", source.ref], "FETCH_HEAD");
+				await this.ensureGitRef(targetDir, ["fetch", "origin", source.ref], "FETCH_HEAD", installDependencies);
 				return;
 			}
 			const target = await this.getLocalGitUpdateTarget(targetDir);
-			await this.ensureGitRef(targetDir, target.fetchArgs, target.ref);
+			await this.ensureGitRef(targetDir, target.fetchArgs, target.ref, installDependencies);
 			return;
 		}
 		const gitRoot = this.getGitInstallRoot(scope);
@@ -1825,7 +1846,7 @@ export class DefaultPackageManager implements PackageManager {
 				await this.runCommand("git", ["checkout", source.ref], { cwd: targetDir });
 			}
 			const packageJsonPath = join(targetDir, "package.json");
-			if (existsSync(packageJsonPath)) {
+			if (installDependencies && existsSync(packageJsonPath)) {
 				await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
 			}
 		} catch (error) {
@@ -1835,20 +1856,20 @@ export class DefaultPackageManager implements PackageManager {
 		}
 	}
 
-	private async updateGit(source: GitSource, scope: SourceScope): Promise<void> {
+	private async updateGit(source: GitSource, scope: SourceScope, installDependencies = true): Promise<void> {
 		const targetDir = this.getGitInstallPath(source, scope);
 		if (!existsSync(targetDir)) {
-			await this.installGit(source, scope);
+			await this.installGit(source, scope, installDependencies);
 			return;
 		}
 
 		if (source.ref) {
-			await this.ensureGitRef(targetDir, ["fetch", "origin", source.ref], "FETCH_HEAD");
+			await this.ensureGitRef(targetDir, ["fetch", "origin", source.ref], "FETCH_HEAD", installDependencies);
 			return;
 		}
 
 		const target = await this.getLocalGitUpdateTarget(targetDir);
-		await this.ensureGitRef(targetDir, target.fetchArgs, target.ref);
+		await this.ensureGitRef(targetDir, target.fetchArgs, target.ref, installDependencies);
 	}
 
 	private hasMissingGitDependencies(targetDir: string): boolean {
@@ -1885,24 +1906,35 @@ export class DefaultPackageManager implements PackageManager {
 		return join(dirname(targetDir), `.${basename(targetDir)}.pi-update-incomplete`);
 	}
 
-	private async cleanAndInstallGitDependencies(targetDir: string, markerPath: string): Promise<void> {
+	private async cleanAndInstallGitDependencies(
+		targetDir: string,
+		markerPath: string,
+		installDependencies: boolean,
+	): Promise<void> {
 		// Clean untracked files (extensions should be pristine). If this fails after
 		// deleting dependencies, repair them so the existing extension still loads.
 		try {
 			await this.runCommand("git", ["clean", "-fdx"], { cwd: targetDir });
 		} catch (error) {
-			await this.repairMissingGitDependencies(targetDir).catch(() => {});
+			if (installDependencies) {
+				await this.repairMissingGitDependencies(targetDir).catch(() => {});
+			}
 			throw error;
 		}
 
 		const packageJsonPath = join(targetDir, "package.json");
-		if (existsSync(packageJsonPath)) {
+		if (installDependencies && existsSync(packageJsonPath)) {
 			await this.runNpmCommand(this.getGitDependencyInstallArgs(), { cwd: targetDir });
 		}
 		rmSync(markerPath, { force: true });
 	}
 
-	private async ensureGitRef(targetDir: string, fetchArgs: string[], ref: string): Promise<void> {
+	private async ensureGitRef(
+		targetDir: string,
+		fetchArgs: string[],
+		ref: string,
+		installDependencies: boolean,
+	): Promise<void> {
 		// Fetch only the ref we will reset to, avoiding unrelated branch/tag noise.
 		await this.runCommand("git", fetchArgs, { cwd: targetDir });
 
@@ -1918,8 +1950,8 @@ export class DefaultPackageManager implements PackageManager {
 		const markerPath = this.getGitUpdateMarkerPath(targetDir);
 		if (localHead.trim() === targetHead.trim()) {
 			if (existsSync(markerPath)) {
-				await this.cleanAndInstallGitDependencies(targetDir, markerPath);
-			} else {
+				await this.cleanAndInstallGitDependencies(targetDir, markerPath, installDependencies);
+			} else if (installDependencies) {
 				await this.repairMissingGitDependencies(targetDir);
 			}
 			return;
@@ -1927,7 +1959,7 @@ export class DefaultPackageManager implements PackageManager {
 
 		writeFileSync(markerPath, "", "utf-8");
 		await this.runCommand("git", ["reset", "--hard", commitRef], { cwd: targetDir });
-		await this.cleanAndInstallGitDependencies(targetDir, markerPath);
+		await this.cleanAndInstallGitDependencies(targetDir, markerPath, installDependencies);
 	}
 
 	private async refreshTemporaryGitSource(source: GitSource, sourceStr: string): Promise<void> {
