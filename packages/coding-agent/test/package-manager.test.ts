@@ -913,6 +913,69 @@ Content`,
 			expect(runCommandSpy).toHaveBeenCalledWith("git", ["clean", "-fdx"], { cwd: targetDir });
 		});
 
+		it("should skip git package dependency install when extensions are disabled", async () => {
+			const source = "git:github.com/user/repo";
+			const targetDir = join(agentDir, "git", "github.com", "user", "repo");
+			settingsManager.setPackages([
+				{
+					source,
+					extensions: [],
+					skills: ["index.ts"],
+				},
+			]);
+			const runCommandSpy = vi
+				.spyOn(packageManager as any, "runCommand")
+				.mockImplementation(async (...callArgs: unknown[]) => {
+					const [command, args] = callArgs as [string, string[]];
+					if (command === "git" && args[0] === "clone") {
+						mkdirSync(targetDir, { recursive: true });
+						writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
+						writeFileSync(join(targetDir, "index.ts"), "export default function() {}\n");
+					}
+				});
+
+			await packageManager.resolve();
+
+			expect(runCommandSpy).toHaveBeenCalledWith("git", ["clone", "https://github.com/user/repo", targetDir]);
+			expect(runCommandSpy).not.toHaveBeenCalledWith("npm", expect.any(Array), { cwd: targetDir });
+		});
+
+		it("should skip git package dependency install on update when extensions are disabled", async () => {
+			const source = "git:github.com/user/repo";
+			const targetDir = join(agentDir, "git", "github.com", "user", "repo");
+			mkdirSync(targetDir, { recursive: true });
+			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
+			settingsManager.setPackages([
+				{
+					source,
+					extensions: [],
+					skills: ["index.ts"],
+				},
+			]);
+
+			vi.spyOn(packageManager as any, "runCommandCapture").mockImplementation(async (...callArgs: unknown[]) => {
+				const [_command, args] = callArgs as [string, string[]];
+				if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "@{upstream}") {
+					return "origin/main";
+				}
+				if (args[0] === "rev-parse" && (args[1] === "@{upstream}" || args[1] === "@{upstream}^{commit}")) {
+					return "remote-head";
+				}
+				if (args[0] === "rev-parse" && args[1] === "HEAD") {
+					return "local-head";
+				}
+				throw new Error(`Unexpected runCommandCapture args: ${args.join(" ")}`);
+			});
+			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+
+			await packageManager.update(source);
+
+			expect(runCommandSpy).toHaveBeenCalledWith("git", ["reset", "--hard", "@{upstream}^{commit}"], {
+				cwd: targetDir,
+			});
+			expect(runCommandSpy).not.toHaveBeenCalledWith("npm", expect.any(Array), { cwd: targetDir });
+		});
+
 		it("should prefer the package manager after a separator over the outer executable", () => {
 			// Regression for #9863.
 			settingsManager = SettingsManager.inMemory({
@@ -2511,7 +2574,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 				"npm:user-pinned@1.0.0",
 				"git:github.com/example/user-repo-a",
 				"git:github.com/example/user-repo-b",
-				"git:github.com/example/user-repo-pinned@v1",
+				"git:github.com/example/user-repo-pinned@refs/tags/v1",
 			]);
 			settingsManager.setProjectPackages([
 				"npm:project-old",
