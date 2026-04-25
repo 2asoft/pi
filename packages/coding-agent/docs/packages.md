@@ -116,6 +116,26 @@ For each resource type:
 
 Filters narrow the package manifest. They do not expose resources that the package itself did not declare.
 
+When object-form git package config sets `extensions` to `[]`, Pi treats the package as static-resource-only and skips the post-clone/update `npm install` step even if the repository has a `package.json`:
+
+```json
+{
+  "packages": [
+    {
+      "source": "git:github.com/ChromeDevTools/chrome-devtools-mcp",
+      "extensions": [],
+      "skills": ["skills/chrome-devtools", "skills/chrome-devtools-cli"],
+      "prompts": [],
+      "themes": []
+    }
+  ]
+}
+```
+
+If a git package needs dependencies for executable code, do not disable `extensions`; Pi installs dependencies for packages that may load extensions.
+
+## Enable and disable resources
+
 Run `pi config` to enable or disable discovered resources. It starts with personal configuration; press Tab to switch scope, or run `pi config --local` to start with project overrides.
 
 ## Understand scope and identity
