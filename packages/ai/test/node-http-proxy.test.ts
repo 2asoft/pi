@@ -45,12 +45,34 @@ describe("node HTTP proxy resolution", () => {
 		expect(resolveHttpProxyUrlForTarget("https://bedrock-runtime.us-east-1.amazonaws.com")).toBeUndefined();
 	});
 
+	it("only applies NO_PROXY suffix matching with wildcards", () => {
+		resetProxyEnv();
+		process.env.HTTPS_PROXY = "http://proxy.example:8080";
+		process.env.NO_PROXY = "amazonaws.com";
+
+		expect(resolveHttpProxyUrlForTarget("https://bedrock-runtime.us-east-1.amazonaws.com")?.toString()).toBe(
+			"http://proxy.example:8080/",
+		);
+
+		process.env.NO_PROXY = ".amazonaws.com";
+		expect(resolveHttpProxyUrlForTarget("https://bedrock-runtime.us-east-1.amazonaws.com")).toBeUndefined();
+	});
+
 	it("resolves HTTP and HTTPS proxy URLs", () => {
 		resetProxyEnv();
 		process.env.HTTPS_PROXY = "http://proxy.example:8080";
 
 		expect(resolveHttpProxyUrlForTarget("https://bedrock-runtime.us-east-1.amazonaws.com")?.toString()).toBe(
 			"http://proxy.example:8080/",
+		);
+	});
+
+	it("defaults proxy URLs without a scheme to the target scheme", () => {
+		resetProxyEnv();
+		process.env.HTTPS_PROXY = "proxy.example:8080";
+
+		expect(resolveHttpProxyUrlForTarget("https://bedrock-runtime.us-east-1.amazonaws.com")?.toString()).toBe(
+			"https://proxy.example:8080/",
 		);
 	});
 

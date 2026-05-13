@@ -1,11 +1,8 @@
 import type { Agent as HttpAgent } from "node:http";
 import type { Agent as HttpsAgent } from "node:https";
-import { createRequire } from "node:module";
 import { HttpProxyAgent } from "http-proxy-agent";
 import { HttpsProxyAgent } from "https-proxy-agent";
-
-const require = createRequire(import.meta.url);
-const { getProxyForUrl } = require("proxy-from-env") as { getProxyForUrl: (url: string) => string };
+import { getProxyForUrl } from "./proxy-env.js";
 
 export interface NodeHttpProxyAgents {
 	httpAgent: HttpAgent;
