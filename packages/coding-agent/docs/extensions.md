@@ -103,7 +103,9 @@ Events cover resource discovery, sessions, agent and message lifecycle, provider
 
 `before_agent_start` exposes both the current prompt and its structured `systemPromptOptions`. `event.messageType` says what started the run: `"user"` for a prompt or `pi.sendUserMessage()`, with `prompt` and `images`; `"custom"` for `pi.sendMessage(..., { triggerTurn: true })`, with the starting `message` and no `prompt`. A returned `message` is added to either kind of run; check `messageType` to skip runs started by custom messages. Prefer changing prompt sections, selected tools, or guidelines so Pi can append a transcript delta. Returning `systemPrompt`, or setting `forceSystemPrompt`, replaces the whole prompt for that run while the transcript continues recording the structured sections. Providers receive the forced text as their leading system prompt.
 
-`message_end` can replace a finalized message while preserving its role. `tool_call` can mutate input or block execution. `tool_result` handlers compose, with each handler seeing prior changes.
+`message_end` can replace a finalized message while preserving its role. For an assistant error, it can return `{ retry: true }` after changing retry state, such as selecting a fallback model. Pi retains the failed response in session history, removes it from live context, and retries the turn without duplicating the user prompt. `tool_call` can mutate input or block execution. `tool_result` handlers compose, with each handler seeing prior changes.
+
+`compaction_error` receives the compaction reason, error message, attempt number, and abort signal. A handler can return `{ retry: true }` to request another automatic compaction attempt. Extension retries and transient summarization retries share `settings.retry.maxRetries`; disabling retries disables both. If the handler switches models, Pi prepares compaction again using the selected model\'s token settings.
 
 <a id="provider_stream_event"></a>
 
