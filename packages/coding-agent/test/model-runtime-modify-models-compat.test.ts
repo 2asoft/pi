@@ -336,6 +336,60 @@ describe("extension provider model lifecycle", () => {
 		expect(await modelsStore.read("extension-dynamic")).toBeUndefined();
 	});
 
+	it("instantiates a built-in provider with isolated credentials", async () => {
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory({
+				"openai-codex-work": {
+					type: "oauth",
+					access: "work-access",
+					refresh: "work-refresh",
+					expires: Date.now() + 10 * 60_000,
+				},
+			}),
+			modelsStore: new InMemoryModelsStore(),
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
+		runtime.registerProvider("openai-codex-work", {
+			sourceProvider: "openai-codex",
+			name: "OpenAI Codex - Work",
+		});
+
+		expect(runtime.isUsingOAuth("openai-codex-work")).toBe(true);
+		expect(runtime.isUsingSubscription("openai-codex-work")).toBe(true);
+		await runtime.refresh({ allowNetwork: false });
+
+		const model = runtime.getModels("openai-codex-work")[0];
+		expect(model?.provider).toBe("openai-codex-work");
+		expect((await runtime.getAuth("openai-codex-work"))?.auth.apiKey).toBe("work-access");
+	});
+
+	it("retains independent personalized built-in account catalogs through recomposition", async () => {
+		const modelsStore = new InMemoryModelsStore();
+		for (const name of ["work", "personal"]) {
+			await modelsStore.write(`openrouter-${name}`, {
+				models: [{ ...model(name), provider: "openrouter" }],
+			});
+		}
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory(),
+			modelsStore,
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
+		for (const name of ["work", "personal"]) {
+			runtime.registerProvider(`openrouter-${name}`, { sourceProvider: "openrouter", apiKey: `key-${name}` });
+		}
+		await runtime.refresh({ allowNetwork: false });
+		for (const name of ["work", "personal"]) {
+			expect(runtime.getModels(`openrouter-${name}`).map((model) => model.id)).toEqual([name]);
+			expect((await runtime.getAuth(`openrouter-${name}`))?.auth.apiKey).toBe(`key-${name}`);
+		}
+		runtime.registerProvider("openrouter-work", { name: "Work account" });
+		expect(runtime.getModels("openrouter-work").map((model) => model.id)).toEqual(["work"]);
+		expect(runtime.getModels("openrouter-personal").map((model) => model.id)).toEqual(["personal"]);
+	});
+
 	it("applies legacy OAuth modifyModels after async credential initialization", async () => {
 		const runtime = await ModelRuntime.create({
 			credentials: AuthStorage.inMemory({

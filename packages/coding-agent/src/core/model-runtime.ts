@@ -102,7 +102,7 @@ interface ModelRuntimeSnapshot {
 	all: readonly Model<Api>[];
 	available: readonly Model<Api>[];
 	configuredProviders: ReadonlySet<string>;
-	storedProviders: ReadonlySet<string>;
+	storedProviders: ReadonlyMap<string, AuthType>;
 	auth: ReadonlyMap<string, AuthCheck | undefined>;
 }
 
@@ -175,6 +175,8 @@ export class ModelRuntime implements Models {
 	private readonly credentials: RuntimeCredentials;
 	private readonly defaultBuiltins: ReadonlyMap<string, Provider>;
 	private readonly builtins = new Map<string, Provider>();
+	private readonly builtinInstances = new Map<string, { sourceProvider: string; provider: Provider }>();
+	private readonly decorateBuiltin: (provider: Provider) => Provider;
 	private readonly nativeExtensionProviders = new Map<string, Provider>();
 	private readonly extensionProviders = new Map<string, ProviderConfigInput>();
 	/** Virtual models by provider id, then model id. */
@@ -187,7 +189,7 @@ export class ModelRuntime implements Models {
 		all: [],
 		available: [],
 		configuredProviders: new Set(),
-		storedProviders: new Set(),
+		storedProviders: new Map(),
 		auth: new Map(),
 	};
 	private availabilityRefreshSeq = 0;
@@ -203,11 +205,13 @@ export class ModelRuntime implements Models {
 		modelsStore: ModelsStore,
 		providers: readonly Provider[],
 		modelNetworkEnabled: boolean,
+		decorateBuiltin: (provider: Provider) => Provider,
 	) {
 		this.credentials = credentials;
 		this.config = config;
 		this.modelsPath = modelsPath;
 		this.modelNetworkEnabled = modelNetworkEnabled;
+		this.decorateBuiltin = decorateBuiltin;
 		this.defaultBuiltins = new Map(providers.map((provider) => [provider.id, provider]));
 		for (const [providerId, provider] of this.defaultBuiltins) this.builtins.set(providerId, provider);
 		this.models = createModels({ credentials, modelsStore });
@@ -225,7 +229,7 @@ export class ModelRuntime implements Models {
 				? new FileModelsStore(options.modelsStorePath ?? join(dirname(modelsPath), "models-store.json"))
 				: new InMemoryCodingAgentModelsStore());
 		const builtinModelDataGeneratedAt = builtinProviderCatalog.getBuiltinModelDataGeneratedAt();
-		const providers = builtinProviderCatalog.builtinProviders().map((provider) => {
+		const decorateBuiltin = (provider: Provider): Provider => {
 			if (provider.id === "radius") return provider;
 			// OpenRouter narrows the catalog to the models, limits and prices of the user's key.
 			if (provider.id === "openrouter") {
@@ -237,7 +241,8 @@ export class ModelRuntime implements Models {
 				);
 			}
 			return withRemoteCatalog(provider, options.catalogBaseUrl, builtinModelDataGeneratedAt);
-		});
+		};
+		const providers = builtinProviderCatalog.builtinProviders().map(decorateBuiltin);
 		const runtime = new ModelRuntime(
 			credentials,
 			config,
@@ -245,6 +250,7 @@ export class ModelRuntime implements Models {
 			modelsStore,
 			providers,
 			process.env.PI_OFFLINE === undefined,
+			decorateBuiltin,
 		);
 		runtime.configureRadiusProviders();
 		runtime.rebuildProviders();
@@ -294,6 +300,20 @@ export class ModelRuntime implements Models {
 		]);
 	}
 
+	private resolveBaseProvider(providerId: string, extension: ProviderConfigInput | undefined): Provider | undefined {
+		if (!extension?.sourceProvider) return this.builtins.get(providerId);
+		if (extension.sourceProvider === providerId) {
+			throw new Error(`Provider instance ${providerId} cannot source itself`);
+		}
+		const cached = this.builtinInstances.get(providerId);
+		if (cached?.sourceProvider === extension.sourceProvider) return cached.provider;
+		const source = builtinProviderCatalog
+			.builtinProviders()
+			.find((provider) => provider.id === extension.sourceProvider);
+		if (!source) throw new Error(`Unknown built-in source provider: ${extension.sourceProvider}`);
+		return this.decorateBuiltin(source);
+	}
+
 	/** Returns the provider without virtual models, or undefined when only virtual models define it. */
 	private recomposeProvider(providerId: string): Provider | undefined {
 		const provider = this.composeProvider(providerId);
@@ -306,8 +326,8 @@ export class ModelRuntime implements Models {
 
 	/** The provider without virtual models, or undefined when nothing defines it. */
 	private composeProvider(providerId: string): Provider | undefined {
-		const base = this.nativeExtensionProviders.get(providerId) ?? this.builtins.get(providerId);
 		const extension = this.extensionProviders.get(providerId);
+		const base = this.nativeExtensionProviders.get(providerId) ?? this.resolveBaseProvider(providerId, extension);
 		if (!this.config.getProvider(providerId) && !extension) {
 			// No overlays: use the builtin untouched so its auth/login/stream behavior is exact.
 			this.compositionErrors.delete(providerId);
@@ -364,7 +384,7 @@ export class ModelRuntime implements Models {
 			all: [...this.models.getModels()],
 			available: [...available],
 			configuredProviders,
-			storedProviders: new Set(credentials.map((entry) => entry.providerId)),
+			storedProviders: new Map(credentials.map((entry) => [entry.providerId, entry.type])),
 			auth,
 		};
 		if (errorSeq === this.availabilityErrorSeq) this.availabilityError = undefined;
@@ -400,7 +420,7 @@ export class ModelRuntime implements Models {
 			signal.throwIfAborted();
 			if (this.providerAvailabilitySeq.get(providerId) !== providerSeq) return;
 			const configuredProviders = new Set(this.snapshot.configuredProviders);
-			const storedProviders = new Set(this.snapshot.storedProviders);
+			const storedProviders = new Map(this.snapshot.storedProviders);
 			const authByProvider = new Map(this.snapshot.auth);
 			if (auth) {
 				configuredProviders.add(providerId);
@@ -409,7 +429,7 @@ export class ModelRuntime implements Models {
 				configuredProviders.delete(providerId);
 				authByProvider.delete(providerId);
 			}
-			if (credential) storedProviders.add(providerId);
+			if (credential) storedProviders.set(providerId, credential.type);
 			else storedProviders.delete(providerId);
 			const all = [...this.models.getModels()];
 			const availableById = new Map(
@@ -916,7 +936,12 @@ export class ModelRuntime implements Models {
 		const configuredProviders = new Set(this.snapshot.configuredProviders).add(providerId);
 		const auth = new Map(this.snapshot.auth);
 		// Never clobber a real check result.
-		if (!auth.get(providerId)) auth.set(providerId, { type, source: "configured provider" });
+		if (!auth.get(providerId)) {
+			auth.set(providerId, {
+				type: this.snapshot.storedProviders.get(providerId) ?? type,
+				source: "configured provider",
+			});
+		}
 		this.snapshot = {
 			...this.snapshot,
 			auth,
@@ -928,7 +953,8 @@ export class ModelRuntime implements Models {
 	registerProvider(providerId: string, config: ProviderConfigInput): void {
 		// Validate the incoming registration on its own, like the legacy registry:
 		// a broken re-registration must throw without touching the stored config.
-		validateExtensionProvider(providerId, this.builtins.get(providerId), this.config.getProvider(providerId), config);
+		const base = this.resolveBaseProvider(providerId, config);
+		validateExtensionProvider(providerId, base, this.config.getProvider(providerId), config);
 		this.nativeExtensionProviders.delete(providerId);
 		// Re-registration merges defined values over the previous registration and
 		// preserves undefined ones, matching the legacy ModelRegistry contract.
@@ -936,6 +962,14 @@ export class ModelRuntime implements Models {
 		const effective: ProviderConfigInput = { ...previous };
 		for (const [key, value] of Object.entries(config)) {
 			if (value !== undefined) (effective as Record<string, unknown>)[key] = value;
+		}
+		if (effective.sourceProvider) {
+			const instance =
+				effective.sourceProvider === config.sourceProvider ? base : this.resolveBaseProvider(providerId, effective);
+			if (instance)
+				this.builtinInstances.set(providerId, { sourceProvider: effective.sourceProvider, provider: instance });
+		} else {
+			this.builtinInstances.delete(providerId);
 		}
 		this.extensionProviders.set(providerId, effective);
 		this.recomposeProvider(providerId);
@@ -949,6 +983,7 @@ export class ModelRuntime implements Models {
 	}
 
 	unregisterProvider(providerId: string): void {
+		this.builtinInstances.delete(providerId);
 		this.extensionProviders.delete(providerId);
 		this.nativeExtensionProviders.delete(providerId);
 		this.recomposeProvider(providerId);
