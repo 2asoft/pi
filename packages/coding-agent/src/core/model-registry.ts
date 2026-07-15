@@ -61,6 +61,14 @@ export class ModelRegistry {
 		return this.runtime.hasConfiguredAuth(model.provider);
 	}
 
+	hasAuth(provider: string): boolean {
+		return this.runtime.hasConfiguredAuth(provider);
+	}
+
+	logout(provider: string): Promise<void> {
+		return this.runtime.logout(provider);
+	}
+
 	async getApiKeyAndHeaders(model: Model<Api>): Promise<ResolvedRequestAuth> {
 		try {
 			const resolution = await this.runtime.getAuth(model);

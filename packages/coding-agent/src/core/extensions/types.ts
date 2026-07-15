@@ -1459,6 +1459,8 @@ export interface ExtensionAPI {
 
 /** Configuration for registering a provider via pi.registerProvider(). */
 export interface ProviderConfig {
+	/** Built-in provider to instantiate with an independent credential identity. */
+	sourceProvider?: string;
 	/** Display name for the provider in UI. */
 	name?: string;
 	/** Base URL for the API endpoint. Required when defining models. */

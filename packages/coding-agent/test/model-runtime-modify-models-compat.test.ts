@@ -292,6 +292,32 @@ describe("extension provider model lifecycle", () => {
 		expect(await modelsStore.read("extension-dynamic")).toBeUndefined();
 	});
 
+	it("instantiates a built-in provider with isolated credentials", async () => {
+		const runtime = await ModelRuntime.create({
+			credentials: AuthStorage.inMemory({
+				"openai-codex-work": {
+					type: "oauth",
+					access: "work-access",
+					refresh: "work-refresh",
+					expires: Date.now() + 10 * 60_000,
+				},
+			}),
+			modelsStore: new InMemoryModelsStore(),
+			modelsPath: null,
+			allowModelNetwork: false,
+		});
+		runtime.registerProvider("openai-codex-work", {
+			sourceProvider: "openai-codex",
+			name: "OpenAI Codex - Work",
+		});
+
+		await runtime.refresh({ allowNetwork: false });
+
+		const model = runtime.getModels("openai-codex-work")[0];
+		expect(model?.provider).toBe("openai-codex-work");
+		expect((await runtime.getAuth("openai-codex-work"))?.auth.apiKey).toBe("work-access");
+	});
+
 	it("applies legacy OAuth modifyModels after async credential initialization", async () => {
 		const runtime = await ModelRuntime.create({
 			credentials: AuthStorage.inMemory({

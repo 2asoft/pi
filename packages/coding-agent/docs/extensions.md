@@ -1805,6 +1805,13 @@ pi.registerProvider("llama.cpp", {
   }
 });
 
+// Create an independently authenticated instance of a built-in provider.
+// It inherits the provider's OAuth flow, dynamic models, and request behavior.
+pi.registerProvider("openai-codex-work", {
+  sourceProvider: "openai-codex",
+  name: "OpenAI Codex - Work",
+});
+
 // Override baseUrl for an existing provider (keeps all models)
 pi.registerProvider("anthropic", {
   baseUrl: "https://proxy.example.com"
@@ -1838,6 +1845,7 @@ pi.registerProvider("corporate-ai", {
 The object form accepts a complete pi-ai `Provider`, including native `auth`, `getModels`, `refreshModels`, `filterModels`, `stream`, and `streamSimple` behavior.
 
 **Legacy config options:**
+- `sourceProvider` - Built-in provider to instantiate with a separate credential identity. It inherits native auth, model discovery, and request behavior.
 - `name` - Display name for the provider in UI such as `/login`.
 - `baseUrl` - API endpoint URL. Required when defining models.
 - `apiKey` - API key literal, environment interpolation (`$ENV_VAR` or `${ENV_VAR}`), or leading `!command`. Required when defining models (unless `oauth` provided). `$$` escapes `$`, and `$!` escapes a literal `!` without triggering command execution.
