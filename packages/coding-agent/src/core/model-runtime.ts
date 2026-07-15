@@ -242,9 +242,21 @@ export class ModelRuntime implements Models {
 		]);
 	}
 
+	private resolveBaseProvider(providerId: string, extension: ProviderConfigInput | undefined): Provider | undefined {
+		if (!extension?.sourceProvider) return this.builtins.get(providerId);
+		if (extension.sourceProvider === providerId) {
+			throw new Error(`Provider instance ${providerId} cannot source itself`);
+		}
+		const source = builtinProviderCatalog
+			.builtinProviders()
+			.find((provider) => provider.id === extension.sourceProvider);
+		if (!source) throw new Error(`Unknown built-in source provider: ${extension.sourceProvider}`);
+		return source.id === "radius" ? source : withRemoteCatalog(source);
+	}
+
 	private recomposeProvider(providerId: string): void {
-		const base = this.nativeExtensionProviders.get(providerId) ?? this.builtins.get(providerId);
 		const extension = this.extensionProviders.get(providerId);
+		const base = this.nativeExtensionProviders.get(providerId) ?? this.resolveBaseProvider(providerId, extension);
 		if (!base && !this.config.getProvider(providerId) && !extension) {
 			this.models.deleteProvider(providerId);
 			this.compositionErrors.delete(providerId);
@@ -750,7 +762,12 @@ export class ModelRuntime implements Models {
 	registerProvider(providerId: string, config: ProviderConfigInput): void {
 		// Validate the incoming registration on its own, like the legacy registry:
 		// a broken re-registration must throw without touching the stored config.
-		validateExtensionProvider(providerId, this.builtins.get(providerId), this.config.getProvider(providerId), config);
+		validateExtensionProvider(
+			providerId,
+			this.resolveBaseProvider(providerId, config),
+			this.config.getProvider(providerId),
+			config,
+		);
 		this.nativeExtensionProviders.delete(providerId);
 		// Re-registration merges defined values over the previous registration and
 		// preserves undefined ones, matching the legacy ModelRegistry contract.

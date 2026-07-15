@@ -44,6 +44,7 @@ export interface ExtensionOAuthConfig {
 
 /** Input type for the extension registerProvider API. */
 export interface ProviderConfigInput {
+	sourceProvider?: string;
 	name?: string;
 	baseUrl?: string;
 	apiKey?: string;
@@ -219,9 +220,13 @@ function applyExtension(
 	models: readonly Model<Api>[],
 	config: ProviderConfigInput | undefined,
 ): Model<Api>[] {
-	if (!config) return [...models];
+	if (!config) return models.map((model) => ({ ...model, provider: providerId }));
 	if (!config.models) {
-		return config.baseUrl ? models.map((model) => ({ ...model, baseUrl: config.baseUrl! })) : [...models];
+		return models.map((model) => ({
+			...model,
+			provider: providerId,
+			...(config.baseUrl ? { baseUrl: config.baseUrl } : {}),
+		}));
 	}
 	return config.models.map((definition) => {
 		const defaults = findModelDefaults(models, definition.id, definition.api ?? config.api);
