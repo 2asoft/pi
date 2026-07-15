@@ -325,6 +325,50 @@ describe("AgentSession compaction characterization", () => {
 		);
 	});
 
+	it("retries automatic compaction when an extension requests retry", async () => {
+		const errors: string[] = [];
+		const harness = await createHarness({
+			withConfiguredAuth: false,
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction_error", (event) => {
+						errors.push(event.errorMessage);
+						return { retry: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		let callCount = 0;
+		harness.session.agent.streamFunction = (model) => {
+			callCount++;
+			if (callCount === 1) throw new Error("subscription exhausted");
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage("summary after retry"),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+						usage: createUsage(10),
+					},
+				});
+			});
+			return stream;
+		};
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+
+		expect(callCount).toBe(2);
+		expect(errors).toEqual(["subscription exhausted"]);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
 	it("auto-compacts with a custom streamFn when registry auth is absent", async () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);
