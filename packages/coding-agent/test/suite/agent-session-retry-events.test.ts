@@ -52,6 +52,36 @@ describe("AgentSession retry and event characterization", () => {
 		expect(harness.session.isRetrying).toBe(false);
 	});
 
+	it("retries an exhausted subscription when an extension requests retry", async () => {
+		const harness = await createHarness({
+			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("message_end", (event) => {
+						if (
+							event.message.role === "assistant" &&
+							event.message.stopReason === "error" &&
+							event.message.errorMessage === "subscription exhausted"
+						) {
+							return { retry: true };
+						}
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "subscription exhausted" }),
+			fauxAssistantMessage("recovered"),
+		]);
+
+		await harness.session.prompt("test");
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "message")).toHaveLength(3);
+	});
+
 	it("retries multiple transient failures and succeeds on the final attempt", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
 		harnesses.push(harness);

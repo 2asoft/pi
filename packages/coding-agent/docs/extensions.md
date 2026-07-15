@@ -473,6 +473,16 @@ pi.on("session_before_compact", async (event, ctx) => {
   };
 });
 
+pi.on("compaction_error", async (event, ctx) => {
+  // event.reason - "threshold" or "overflow"
+  // event.errorMessage - summarization failure
+  // event.attempt - 1-based retry attempt
+  // event.signal - abort signal for active compaction
+  if (event.errorMessage.includes("usage_limit_reached")) {
+    return { retry: true };
+  }
+});
+
 pi.on("session_compact", async (event, ctx) => {
   // event.compactionEntry - the saved compaction
   // event.fromExtension - whether extension provided it
@@ -592,6 +602,7 @@ Fired for message lifecycle updates.
 - `message_start` and `message_end` fire for user, assistant, and toolResult messages.
 - `message_update` fires for assistant streaming updates.
 - `message_end` handlers can return `{ message }` to replace the finalized message. The replacement must keep the same `role`.
+- `message_end` handlers can return `{ retry: true }` for an assistant error after changing retry state, such as selecting a fallback model. Pi retains the failed response in session history, removes it from live context, and retries the same turn without duplicating the user prompt.
 
 ```typescript
 pi.on("message_start", async (event, ctx) => {
@@ -618,6 +629,14 @@ pi.on("message_end", async (event, ctx) => {
       },
     },
   };
+});
+
+pi.on("message_end", async (event, ctx) => {
+  if (event.message.role !== "assistant" || event.message.stopReason !== "error") return;
+  if (!event.message.errorMessage?.includes("usage limit")) return;
+
+  const fallback = ctx.modelRegistry.find("backup-provider", event.message.model);
+  if (fallback && await pi.setModel(fallback)) return { retry: true };
 });
 ```
 

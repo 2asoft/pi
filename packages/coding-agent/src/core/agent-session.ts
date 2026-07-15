@@ -68,6 +68,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
+	type CompactionErrorResult,
 	type ContextUsage,
 	type ExtensionCommandContextActions,
 	type ExtensionErrorListener,
@@ -334,6 +335,7 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
+	private _extensionRetryRequested = false;
 
 	// Bash execution state
 	private readonly _bashAbortControllers = new Set<AbortController>();
@@ -689,7 +691,7 @@ export class AgentSession {
 		for (let i = event.messages.length - 1; i >= 0; i--) {
 			const message = event.messages[i];
 			if (message.role === "assistant") {
-				return this._isRetryableError(message as AssistantMessage);
+				return this._extensionRetryRequested || this._isRetryableError(message as AssistantMessage);
 			}
 		}
 		return false;
@@ -764,10 +766,11 @@ export class AgentSession {
 				type: "message_end",
 				message: event.message,
 			};
-			const replacement = await this._extensionRunner.emitMessageEnd(extensionEvent);
-			if (replacement) {
+			const result = await this._extensionRunner.emitMessageEnd(extensionEvent);
+			if (result?.message) {
 				// Untyped extension handlers can return messages with null/missing content;
 				// normalize so it never enters agent state or session history.
+				const replacement = result.message;
 				const normalized =
 					(replacement.role === "user" ||
 						replacement.role === "assistant" ||
@@ -777,6 +780,9 @@ export class AgentSession {
 						? ({ ...replacement, content: [] } as AgentMessage)
 						: replacement;
 				this._replaceMessageInPlace(event.message, normalized);
+			}
+			if (result?.retry && event.message.role === "assistant" && event.message.stopReason === "error") {
+				this._extensionRetryRequested = true;
 			}
 		} else if (event.type === "tool_execution_start") {
 			const extensionEvent: ToolExecutionStartEvent = {
@@ -1079,6 +1085,13 @@ export class AgentSession {
 		this._lastAssistantMessage = undefined;
 		if (!msg) {
 			return false;
+		}
+
+		if (this._extensionRetryRequested) {
+			this._extensionRetryRequested = false;
+			if (msg.stopReason === "error" && (await this._prepareRetry(msg))) {
+				return true;
+			}
 		}
 
 		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
@@ -2064,8 +2077,6 @@ export class AgentSession {
 				return false;
 			}
 
-			const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(this.model);
-
 			const pathEntries = this.sessionManager.getBranch();
 
 			const preparation = prepareCompaction(pathEntries, settings);
@@ -2122,20 +2133,43 @@ export class AgentSession {
 				usage = extensionCompaction.usage;
 				details = extensionCompaction.details;
 			} else {
-				// Generate compaction result
-				const compactResult = await compact(
-					preparation,
-					requestModel,
-					apiKey,
-					headers,
-					undefined,
-					this._autoCompactionAbortController.signal,
-					this.thinkingLevel,
-					this.agent.streamFunction,
-					env,
-					this.settingsManager.getRetrySettings(),
-					this._summarizationRetryCallbacks({ source: "compaction", reason }),
-				);
+				let attempt = 1;
+				let compactResult: CompactionResult;
+				while (true) {
+					try {
+						const model = this.model;
+						if (!model) return false;
+						const { model: requestModel, apiKey, headers, env } = await this._getSummarizationRequestAuth(model);
+						compactResult = await compact(
+							preparation,
+							requestModel,
+							apiKey,
+							headers,
+							undefined,
+							this._autoCompactionAbortController.signal,
+							this.thinkingLevel,
+							this.agent.streamFunction,
+							env,
+							this.settingsManager.getRetrySettings(),
+							this._summarizationRetryCallbacks({ source: "compaction", reason }),
+						);
+						break;
+					} catch (error) {
+						const errorMessage = error instanceof Error ? error.message : String(error);
+						if (attempt > this.settingsManager.getRetrySettings().maxRetries) throw error;
+						const retryResult = this._extensionRunner.hasHandlers("compaction_error")
+							? ((await this._extensionRunner.emit({
+									type: "compaction_error",
+									reason,
+									errorMessage,
+									attempt,
+									signal: this._autoCompactionAbortController.signal,
+								})) as CompactionErrorResult | undefined)
+							: undefined;
+						if (!retryResult?.retry) throw error;
+						attempt++;
+					}
+				}
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
 				tokensBefore = compactResult.tokensBefore;
