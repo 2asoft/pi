@@ -100,7 +100,9 @@ Events cover resource discovery, sessions, agent and message lifecycle, provider
 
 `before_agent_start` exposes both the current prompt and its structured `systemPromptOptions`. Prefer changing prompt sections, selected tools, or guidelines so Pi can append a transcript delta. Returning `systemPrompt`, or setting `forceSystemPrompt`, replaces the whole prompt for that run while the transcript continues recording the structured sections. Providers receive the forced text as their leading system prompt.
 
-`message_end` can replace a finalized message while preserving its role. `tool_call` can mutate input or block execution. `tool_result` handlers compose, with each handler seeing prior changes.
+`message_end` can replace a finalized message while preserving its role. For an assistant error, it can return `{ retry: true }` after changing retry state, such as selecting a fallback model. Pi retains the failed response in session history, removes it from live context, and retries the turn without duplicating the user prompt. `tool_call` can mutate input or block execution. `tool_result` handlers compose, with each handler seeing prior changes.
+
+`compaction_error` receives the compaction reason, error message, attempt number, and abort signal. A handler can return `{ retry: true }` to request another compaction attempt.
 
 <a id="context_with_system"></a>
 

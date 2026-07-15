@@ -607,6 +607,15 @@ export interface SessionBeforeCompactEvent {
 	signal: AbortSignal;
 }
 
+/** Fired when automatic context compaction fails before pi emits compaction_end. */
+export interface CompactionErrorEvent {
+	type: "compaction_error";
+	reason: "overflow" | "threshold";
+	errorMessage: string;
+	attempt: number;
+	signal: AbortSignal;
+}
+
 /** Fired after context compaction succeeds */
 export interface SessionCompactEvent {
 	type: "session_compact";
@@ -678,6 +687,7 @@ export type SessionEvent =
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
 	| SessionBeforeCompactEvent
+	| CompactionErrorEvent
 	| SessionCompactEvent
 	| SessionCompactFailedEvent
 	| SessionShutdownEvent
@@ -1248,6 +1258,8 @@ export interface ToolResultEventResult {
 export interface MessageEndEventResult {
 	/** Replace the finalized message. The replacement must keep the original message role. */
 	message?: AgentMessage;
+	/** Request that Pi retry this assistant error with the current model. */
+	retry?: boolean;
 }
 
 export interface BeforeAgentStartEventResult {
@@ -1268,6 +1280,10 @@ export interface SessionBeforeForkResult {
 export interface SessionBeforeCompactResult {
 	cancel?: boolean;
 	compaction?: CompactionResult;
+}
+
+export interface CompactionErrorResult {
+	retry?: boolean;
 }
 
 export interface SessionBeforeTreeResult {
@@ -1370,6 +1386,7 @@ export interface ExtensionAPI {
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
 	): () => void;
+	on(event: "compaction_error", handler: ExtensionHandler<CompactionErrorEvent, CompactionErrorResult>): () => void;
 	on(event: "session_compact", handler: ExtensionHandler<SessionCompactEvent>): () => void;
 	on(event: "session_compact_failed", handler: ExtensionHandler<SessionCompactFailedEvent>): () => void;
 	on(event: "session_shutdown", handler: ExtensionHandler<SessionShutdownEvent>): () => void;
