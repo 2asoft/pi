@@ -379,6 +379,139 @@ describe("AgentSession compaction characterization", () => {
 		);
 	});
 
+	for (const enabled of [false, true])
+		it(`shares the automatic compaction retry budget, enabled=${enabled}`, async () => {
+			const errors: string[] = [];
+			const harness = await createHarness({
+				withConfiguredAuth: false,
+				settings: { retry: { enabled, maxRetries: 2, baseDelayMs: 1 } },
+				extensionFactories: [
+					(pi) => {
+						pi.on("compaction_error", (event) => {
+							errors.push(event.errorMessage);
+							return { retry: true };
+						});
+					},
+				],
+			});
+			harnesses.push(harness);
+			seedCompactableSession(harness);
+			let calls = 0;
+			harness.session.agent.streamFunction = () => {
+				calls++;
+				const stream = createAssistantMessageEventStream();
+				queueMicrotask(() =>
+					stream.push({
+						type: "error",
+						reason: "error",
+						error: createAssistant(harness, { stopReason: "error", errorMessage: "network error" }),
+					}),
+				);
+				return stream;
+			};
+			await (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction("threshold", false);
+			expect(calls).toBe(enabled ? 3 : 1);
+			expect(errors).toEqual([]);
+			expect(harness.eventsOfType("compaction_end").at(-1)?.errorMessage).toContain("network error");
+		});
+
+	it("retries automatic compaction when an extension requests retry", async () => {
+		const errors: string[] = [];
+		const harness = await createHarness({
+			withConfiguredAuth: false,
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction_error", (event) => {
+						errors.push(event.errorMessage);
+						return { retry: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		let callCount = 0;
+		harness.session.agent.streamFunction = (model) => {
+			callCount++;
+			if (callCount === 1) throw new Error("subscription exhausted");
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage("summary after retry"),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+						usage: createUsage(10),
+					},
+				});
+			});
+			return stream;
+		};
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+		await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+
+		expect(callCount).toBe(2);
+		expect(errors).toEqual(["subscription exhausted"]);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("reprepares automatic compaction for a smaller fallback model", async () => {
+		let fallback: Model<string>;
+		const harness = await createHarness({
+			models: [
+				{ id: "large", contextWindow: 2000 },
+				{ id: "small", contextWindow: 500 },
+			],
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction_error", async () => {
+						expect(await pi.setModel(fallback)).toBe(true);
+						return { retry: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		fallback = harness.getModel("small")!;
+		seedCompactableSession(harness);
+		harness.settingsManager.applyOverrides({
+			compaction: {
+				reserveTokens: 40,
+				modelOverrides: { [`${fallback.provider}/${fallback.id}`]: { reserveTokens: 20, keepRecentTokens: 1 } },
+			},
+		});
+		const requests: { model: string; maxTokens: number | undefined }[] = [];
+		harness.session.agent.streamFunction = (model, _context, options) => {
+			requests.push({ model: model.id, maxTokens: options?.maxTokens });
+			if (requests.length === 1) throw new Error("subscription exhausted");
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() =>
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage("fallback summary"),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+					},
+				}),
+			);
+			return stream;
+		};
+		await (harness.session as unknown as SessionWithCompactionInternals)._runAutoCompaction("threshold", false);
+		expect(requests.slice(0, 2)).toEqual([
+			{ model: "large", maxTokens: undefined },
+			{ model: "small", maxTokens: undefined },
+		]);
+		expect(harness.session.model).toBe(fallback);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
 	it("auto-compacts with a custom streamFn when registry auth is absent", async () => {
 		const harness = await createHarness({ withConfiguredAuth: false });
 		harnesses.push(harness);

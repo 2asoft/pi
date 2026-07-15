@@ -51,6 +51,8 @@ export type {
 	CacheWarmingDecisionEvent,
 	CacheWarmingDecisionEventResult,
 	CompactionEntryDraft,
+	CompactionErrorEvent,
+	CompactionErrorResult,
 	// Context
 	CompactOptions,
 	ContextEditEntryDraft,

@@ -37,6 +37,7 @@ import type {
 	BoundaryResult,
 	CacheWarmingDecisionEvent,
 	CacheWarmingDecisionEventResult,
+	CompactionErrorResult,
 	CompactOptions,
 	ContextEvent,
 	ContextEventResult,
@@ -216,9 +217,11 @@ type RunnerEmitResult<TEvent extends RunnerEmitEvent> = TEvent extends { type: "
 		? SessionBeforeForkResult | undefined
 		: TEvent extends { type: "session_before_compact" }
 			? SessionBeforeCompactResult | undefined
-			: TEvent extends { type: "session_before_tree" }
-				? SessionBeforeTreeResult | undefined
-				: undefined;
+			: TEvent extends { type: "compaction_error" }
+				? CompactionErrorResult | undefined
+				: TEvent extends { type: "session_before_tree" }
+					? SessionBeforeTreeResult | undefined
+					: undefined;
 
 export type ExtensionErrorListener = (error: ExtensionError) => void;
 
@@ -1095,7 +1098,7 @@ export class ExtensionRunner {
 
 	async emit<TEvent extends RunnerEmitEvent>(event: TEvent): Promise<RunnerEmitResult<TEvent>> {
 		const ctx = this.createContext();
-		let result: SessionBeforeEventResult | undefined;
+		let result: SessionBeforeEventResult | CompactionErrorResult | undefined;
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, event.type)) {
 			for (const handler of handlers) {
@@ -1106,6 +1109,12 @@ export class ExtensionRunner {
 						result = handlerResult as SessionBeforeEventResult;
 						if (result.cancel) {
 							return result as RunnerEmitResult<TEvent>;
+						}
+					} else if (event.type === "compaction_error" && handlerResult) {
+						const compactionResult = handlerResult as CompactionErrorResult;
+						result = compactionResult;
+						if (compactionResult.retry) {
+							return compactionResult as RunnerEmitResult<TEvent>;
 						}
 					}
 				} catch (err) {
@@ -1148,17 +1157,20 @@ export class ExtensionRunner {
 		return action;
 	}
 
-	async emitMessageEnd(event: MessageEndEvent): Promise<AgentMessage | undefined> {
+	async emitMessageEnd(event: MessageEndEvent): Promise<MessageEndEventResult | undefined> {
 		const ctx = this.createContext();
 		let currentMessage = event.message;
 		let modified = false;
+		let retry = false;
 
 		for (const { ext, handlers } of snapshotEventHandlers(this.extensions, "message_end")) {
 			for (const handler of handlers) {
 				try {
 					const currentEvent: MessageEndEvent = { ...event, message: currentMessage };
 					const handlerResult = (await handler(currentEvent, ctx)) as MessageEndEventResult | undefined;
-					if (!handlerResult?.message) continue;
+					if (!handlerResult) continue;
+					if (handlerResult.retry) retry = true;
+					if (!handlerResult.message) continue;
 
 					if (handlerResult.message.role !== currentMessage.role) {
 						this.emitError({
@@ -1184,7 +1196,11 @@ export class ExtensionRunner {
 			}
 		}
 
-		return modified ? currentMessage : undefined;
+		if (!modified && !retry) return undefined;
+		return {
+			...(modified ? { message: currentMessage } : {}),
+			...(retry ? { retry } : {}),
+		};
 	}
 
 	async emitToolResult(event: ToolResultEvent): Promise<ToolResultEventResult | undefined> {
