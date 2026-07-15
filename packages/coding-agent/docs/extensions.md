@@ -85,6 +85,8 @@ Automatic retries, recovery, compaction, or queued work can continue afterward.
 
 Use the exported declarations in [`extensions/types.ts`](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/src/core/extensions/types.ts) for exact event, context, tool, and result types.
 
+To create an independently authenticated account for a built-in provider, register a new provider name with `sourceProvider`, for example `pi.registerProvider("openai-codex-work", { sourceProvider: "openai-codex", name: "OpenAI Codex - Work" })`. The instance inherits native authentication, model discovery, and request behavior.
+
 ## Follow the extension contracts
 
 <a id="events"></a>
