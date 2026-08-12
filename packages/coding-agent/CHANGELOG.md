@@ -56,6 +56,12 @@
 - Fixed inherited idle fullscreen sessions repainting and clearing text selection when the terminal loses focus ([#7892](https://github.com/earendil-works/pi/pull/7892) by [@terrorobe](https://github.com/terrorobe)).
 - Fixed fullscreen selection copy to use the host clipboard and report failure instead of claiming success when OSC 52 is unsupported ([#8110](https://github.com/earendil-works/pi/pull/8110) by [@Panoplos](https://github.com/Panoplos)).
 
+## [Unreleased]
+
+### Added
+
+- Added `PI_AUTH_PATH` to select the auth file independently of the agent directory.
+
 ## [0.84.1] - 2026-08-07
 
 ### New Features

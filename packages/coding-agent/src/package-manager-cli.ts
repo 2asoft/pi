@@ -8,6 +8,7 @@ import {
 	CONFIG_DIR_NAME,
 	detectInstallMethod,
 	getAgentDir,
+	getAuthPath,
 	getPackageDir,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
@@ -399,7 +400,7 @@ async function refreshModelCatalogs(agentDir: string): Promise<void> {
 	const timeout = setTimeout(() => controller.abort(), 15_000);
 	try {
 		const modelRuntime = await ModelRuntime.create({
-			authPath: join(agentDir, "auth.json"),
+			authPath: getAuthPath(),
 			modelsPath: join(agentDir, "models.json"),
 			allowModelNetwork: false,
 			signal: controller.signal,

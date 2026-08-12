@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, w
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ENV_AGENT_DIR, PACKAGE_NAME, VERSION } from "../src/config.ts";
+import { ENV_AGENT_DIR, getAuthPath, PACKAGE_NAME, VERSION } from "../src/config.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import type { ResolvedPaths } from "../src/core/package-manager.ts";
 import { InMemorySettingsStorage, SettingsManager } from "../src/core/settings-manager.ts";
@@ -383,7 +383,7 @@ describe("package commands", () => {
 		await expect(runPackageCommandDirectly(["update", "--models"])).resolves.toBeUndefined();
 
 		expect(create).toHaveBeenCalledWith({
-			authPath: join(agentDir, "auth.json"),
+			authPath: getAuthPath(),
 			modelsPath: join(agentDir, "models.json"),
 			allowModelNetwork: false,
 			signal: expect.any(AbortSignal),

@@ -4,6 +4,10 @@ import { delimiter, join } from "path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
 	detectInstallMethod,
+	ENV_AGENT_DIR,
+	ENV_AUTH_PATH,
+	getAgentDir,
+	getAuthPath,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	getUpdateInstruction,
@@ -433,5 +437,34 @@ describe("detectInstallMethod", () => {
 		expect(getSelfUpdateUnavailableInstruction("@earendil-works/pi-coding-agent")).toContain(
 			"the install path is not writable",
 		);
+	});
+});
+
+describe("getAuthPath", () => {
+	const originalAuthPath = process.env[ENV_AUTH_PATH];
+	const originalAgentDir = process.env[ENV_AGENT_DIR];
+
+	afterEach(() => {
+		if (originalAuthPath === undefined) {
+			delete process.env[ENV_AUTH_PATH];
+		} else {
+			process.env[ENV_AUTH_PATH] = originalAuthPath;
+		}
+		if (originalAgentDir === undefined) {
+			delete process.env[ENV_AGENT_DIR];
+		} else {
+			process.env[ENV_AGENT_DIR] = originalAgentDir;
+		}
+	});
+
+	test("uses PI_AUTH_PATH when set", () => {
+		process.env[ENV_AUTH_PATH] = "/tmp/shared-auth.json";
+		expect(getAuthPath()).toBe("/tmp/shared-auth.json");
+	});
+
+	test("uses the agent-dir auth file when PI_AUTH_PATH is empty", () => {
+		process.env[ENV_AGENT_DIR] = "/tmp/agent-dir";
+		process.env[ENV_AUTH_PATH] = "";
+		expect(getAuthPath()).toBe(join(getAgentDir(), "auth.json"));
 	});
 });
