@@ -685,6 +685,57 @@ describe("openai-codex streaming", () => {
 		expect(capturedBody).not.toHaveProperty("prompt_cache_key");
 	});
 
+	it("sends configured access programs", async () => {
+		const token = mockToken();
+		const encoder = new TextEncoder();
+		let capturedPayload: Record<string, unknown> | undefined;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(encoder.encode(buildSSEPayload({ status: "completed" })));
+								controller.close();
+							},
+						}),
+						{ status: 200, headers: { "content-type": "text/event-stream" } },
+					),
+			),
+		);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-6-sol",
+			name: "GPT-6 Sol Daybreak",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			contextWindow: 272000,
+			maxTokens: 128000,
+			compat: { accessPrograms: { cyber: "daybreak_blue" } },
+		};
+		const context = normalizeContext({
+			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
+		});
+
+		await streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "sse",
+			onPayload: (payload) => {
+				capturedPayload = payload as Record<string, unknown>;
+			},
+		}).result();
+
+		expect(capturedPayload).toMatchObject({
+			model: "gpt-6-sol",
+			access_programs: { cyber: "daybreak_blue" },
+		});
+	});
+
 	it("clamps prompt_cache_key to OpenAI's 64-character limit", async () => {
 		const token = mockToken();
 		const sessionId = "x".repeat(67);

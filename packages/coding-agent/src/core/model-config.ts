@@ -120,6 +120,7 @@ const OpenAIResponsesCompatSchema = Type.Object({
 	supportsStrictMode: Type.Optional(Type.Boolean()),
 	supportsOpenAIGrammarTools: Type.Optional(Type.Boolean()),
 	supportsMaxOutputTokens: Type.Optional(Type.Boolean()),
+	accessPrograms: Type.Optional(Type.Record(Type.String({ minLength: 1 }), Type.String({ minLength: 1 }))),
 });
 
 const ModelCostRatesSchema = {

@@ -772,6 +772,8 @@ export interface OpenAIResponsesCompat {
 	supportsExplicitPromptCacheMode?: boolean;
 	/** Whether the provider accepts the `max_output_tokens` parameter. Some Codex-protocol gateways reject it. Default: true. */
 	supportsMaxOutputTokens?: boolean;
+	/** Access programs sent as the Codex `access_programs` request field. */
+	accessPrograms?: Record<string, string>;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */

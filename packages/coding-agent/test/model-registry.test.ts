@@ -2,7 +2,13 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { normalizeContext } from "@earendil-works/pi-ai";
-import type { AnthropicMessagesCompat, Api, Model, OpenAICompletionsCompat } from "@earendil-works/pi-ai/compat";
+import type {
+	AnthropicMessagesCompat,
+	Api,
+	Model,
+	OpenAICompletionsCompat,
+	OpenAIResponsesCompat,
+} from "@earendil-works/pi-ai/compat";
 import { getApiProvider, getModels, getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
@@ -462,6 +468,25 @@ describe("ModelRegistry", () => {
 			expect(model?.thinkingLevelMap).toEqual({ minimal: null, high: "max" });
 			expect(compat?.supportsStrictMode).toBe(false);
 			expect(compat?.cacheControlFormat).toBe("anthropic");
+		});
+
+		test("compat schema accepts OpenAI access programs", async () => {
+			writeRawModelsJson({
+				"openai-codex": {
+					models: [
+						{
+							id: "gpt-6-sol",
+							compat: { accessPrograms: { cyber: "daybreak_blue" } },
+						},
+					],
+				},
+			});
+
+			const registry = await createModelRegistry(authStorage, modelsJsonPath);
+			const compat = registry.find("openai-codex", "gpt-6-sol")?.compat as OpenAIResponsesCompat | undefined;
+
+			expect(registry.getError()).toBeUndefined();
+			expect(compat?.accessPrograms).toEqual({ cyber: "daybreak_blue" });
 		});
 
 		test("compat schema accepts chat template thinking configuration", async () => {
