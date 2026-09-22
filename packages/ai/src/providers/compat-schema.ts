@@ -351,6 +351,11 @@ export const OpenAICompletionsCompatSchema = Type.Object(
 
 export const OpenAIResponsesCompatSchema = Type.Object(
 	{
+		accessPrograms: Type.Optional(
+			Type.Record(Type.String({ minLength: 1 }), Type.String({ minLength: 1 }), {
+				description: "Access programs sent as the Codex access_programs request field.",
+			}),
+		),
 		supportsDeveloperRole: optionalCompatBoolean({
 			description: "Whether the provider supports the developer role instead of system.",
 			default: true,
