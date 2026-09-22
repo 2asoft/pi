@@ -1021,6 +1021,16 @@
           "type": "number",
           "description": "vLLM scheduler priority sent as the top-level priority request field. Lower values are handled earlier and the server default is 0. Only meaningful with --scheduling-policy priority. Off by default and not set on the generated catalog."
         },
+        "accessPrograms": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "description": "Access programs sent as the Codex access_programs request field."
+        },
         "supportsAdditionalTools": {
           "type": "boolean",
           "description": "Whether the model supports message-anchored additional_tools input items.",

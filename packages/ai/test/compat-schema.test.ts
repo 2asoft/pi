@@ -12,6 +12,19 @@ import {
 type ProviderCompat = Static<typeof ProviderCompatSchema>;
 
 describe("compatibility schemas", () => {
+	it("validates Codex access programs in the shared compatibility schema", () => {
+		// Arrange
+		const schema = Compile(ProviderCompatSchema);
+
+		// Act
+		const accepted = schema.Check({ accessPrograms: { daybreak: "enabled" } });
+		const rejected = schema.Check({ accessPrograms: { daybreak: 42 } });
+
+		// Assert
+		expect(accepted).toBe(true);
+		expect(rejected).toBe(false);
+	});
+
 	it("preserves property types in the provider superset", () => {
 		expectTypeOf<ProviderCompat["supportsStore"]>().toEqualTypeOf<boolean | undefined>();
 		expectTypeOf<ProviderCompat["sessionAffinityFormat"]>().toEqualTypeOf<
