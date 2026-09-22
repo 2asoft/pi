@@ -102,6 +102,7 @@ interface RequestBody {
 	text?: { verbosity?: string };
 	include?: string[];
 	prompt_cache_key?: string;
+	access_programs?: Record<string, string>;
 	[key: string]: unknown;
 }
 
@@ -561,6 +562,7 @@ function buildRequestBody(
 		prompt_cache_key: cacheSessionId,
 		tool_choice: options?.toolChoice ?? "auto",
 		parallel_tool_calls: true,
+		access_programs: model.compat?.accessPrograms,
 	};
 
 	if (options?.temperature !== undefined) {
