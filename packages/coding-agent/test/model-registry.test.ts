@@ -470,23 +470,31 @@ describe("ModelRegistry", () => {
 			expect(compat?.cacheControlFormat).toBe("anthropic");
 		});
 
-		test("compat schema accepts OpenAI access programs", async () => {
+		test("Codex Daybreak alias leaves standard GPT-6 Sol available", async () => {
 			writeRawModelsJson({
-				"openai-codex": {
+				"openai-codex-2": {
 					models: [
 						{
-							id: "gpt-6-sol",
-							compat: { accessPrograms: { cyber: "daybreak_blue" } },
+							id: "gpt-6-sol-daybreak",
+							api: "openai-codex-responses",
+							baseUrl: "https://chatgpt.com/backend-api",
+							compat: { requestModelId: "gpt-6-sol", accessPrograms: { cyber: "daybreak_blue" } },
 						},
+						{ id: "gpt-6-sol", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" },
 					],
 				},
 			});
 
 			const registry = await createModelRegistry(authStorage, modelsJsonPath);
-			const compat = registry.find("openai-codex", "gpt-6-sol")?.compat as OpenAIResponsesCompat | undefined;
+			const daybreak = registry.find("openai-codex-2", "gpt-6-sol-daybreak");
+			const standard = registry.find("openai-codex-2", "gpt-6-sol");
 
 			expect(registry.getError()).toBeUndefined();
-			expect(compat?.accessPrograms).toEqual({ cyber: "daybreak_blue" });
+			expect(daybreak?.compat).toMatchObject({
+				requestModelId: "gpt-6-sol",
+				accessPrograms: { cyber: "daybreak_blue" },
+			});
+			expect((standard?.compat as OpenAIResponsesCompat | undefined)?.accessPrograms).toBeUndefined();
 		});
 
 		test("compat schema accepts chat template thinking configuration", async () => {

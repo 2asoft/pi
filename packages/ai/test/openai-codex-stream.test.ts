@@ -685,7 +685,7 @@ describe("openai-codex streaming", () => {
 		expect(capturedBody).not.toHaveProperty("prompt_cache_key");
 	});
 
-	it("sends configured access programs", async () => {
+	it("sends a Daybreak alias as GPT-6 Sol with its access program", async () => {
 		const token = mockToken();
 		const encoder = new TextEncoder();
 		let capturedPayload: Record<string, unknown> | undefined;
@@ -706,23 +706,23 @@ describe("openai-codex streaming", () => {
 		);
 
 		const model: Model<"openai-codex-responses"> = {
-			id: "gpt-6-sol",
+			id: "gpt-6-sol-daybreak",
 			name: "GPT-6 Sol Daybreak",
 			api: "openai-codex-responses",
-			provider: "openai-codex",
+			provider: "openai-codex-2",
 			baseUrl: "https://chatgpt.com/backend-api",
 			reasoning: true,
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 			contextWindow: 272000,
 			maxTokens: 128000,
-			compat: { accessPrograms: { cyber: "daybreak_blue" } },
+			compat: { requestModelId: "gpt-6-sol", accessPrograms: { cyber: "daybreak_blue" } },
 		};
 		const context = normalizeContext({
 			messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }],
 		});
 
-		await streamOpenAICodexResponses(model, context, {
+		const result = await streamOpenAICodexResponses(model, context, {
 			apiKey: token,
 			transport: "sse",
 			onPayload: (payload) => {
@@ -734,6 +734,7 @@ describe("openai-codex streaming", () => {
 			model: "gpt-6-sol",
 			access_programs: { cyber: "daybreak_blue" },
 		});
+		expect(result.model).toBe("gpt-6-sol-daybreak");
 	});
 
 	it("clamps prompt_cache_key to OpenAI's 64-character limit", async () => {

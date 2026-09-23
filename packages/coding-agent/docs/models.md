@@ -98,7 +98,7 @@ Use `promptCache` to declare the provider's best-effort cache lifetime in second
 
 Choose the conservative end of any published range. A model without a lifetime for the active tier is not eligible for cache warming. A `modelOverrides` entry can set `inputLimits` or `promptCache` for a built-in or extension model, including a model accessed through a validated proxy. See [`cacheWarming`](settings.md#model-and-thinking).
 
-Compatibility settings should describe verified differences in the endpoint's request or response behavior. Do not enable them based only on an endpoint advertising OpenAI or Anthropic compatibility. For `openai-codex-responses` models, `compat.accessPrograms` sends access-program selections in the `access_programs` request field, for example `{ "cyber": "daybreak_blue" }`.
+Compatibility settings should describe verified differences in the endpoint's request or response behavior. Do not enable them based only on an endpoint advertising OpenAI or Anthropic compatibility. For `openai-codex-responses` models, `compat.accessPrograms` sends access-program selections in the `access_programs` request field. To select an access program separately from the standard model, define a custom model with a distinct `id`, set `compat.requestModelId` to the backend model ID, and set `compat.accessPrograms` to the desired program. For example, use `id: "gpt-6-sol-daybreak"`, `requestModelId: "gpt-6-sol"`, and `accessPrograms: { "cyber": "daybreak_blue" }`. The standard `gpt-6-sol` model remains available without Daybreak.
 
 ## Add a custom provider
 

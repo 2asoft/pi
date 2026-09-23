@@ -78,6 +78,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		supportsExplicitPromptCacheMode: model.compat?.supportsExplicitPromptCacheMode ?? false,
 		supportsMaxOutputTokens: model.compat?.supportsMaxOutputTokens ?? true,
 		accessPrograms: model.compat?.accessPrograms ?? {},
+		requestModelId: model.compat?.requestModelId ?? model.id,
 	};
 }
 
