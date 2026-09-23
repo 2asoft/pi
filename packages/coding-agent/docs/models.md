@@ -124,7 +124,7 @@ OpenAI-compatible APIs support free-form `samplingParams` model defaults and `sa
 
 Pi first clamps unsupported thinking levels, then merges model `samplingParams`, the effective level's override, and request-level `samplingParams` in that order. Later values win per key. Missing levels inherit the model defaults. `modelOverrides` merges per-level entries per key with the base model. These fields apply only to `openai-completions`, `openai-responses`, and `azure-openai-responses`; other APIs ignore them.
 
-Compatibility settings should describe verified differences in the endpoint's request or response behavior. Do not enable them based only on an endpoint advertising OpenAI or Anthropic compatibility. For `openai-codex-responses` models, `compat.accessPrograms` sends access-program selections in the `access_programs` request field, for example `{ "cyber": "daybreak_blue" }`.
+Compatibility settings should describe verified differences in the endpoint's request or response behavior. Do not enable them based only on an endpoint advertising OpenAI or Anthropic compatibility. For `openai-codex-responses` models, `compat.accessPrograms` sends access-program selections in the `access_programs` request field. To select an access program separately from the standard model, define a custom model with a distinct `id`, set `compat.requestModelId` to the backend model ID, and set `compat.accessPrograms` to the desired program. For example, use `id: "gpt-6-sol-daybreak"`, `requestModelId: "gpt-6-sol"`, and `accessPrograms: { "cyber": "daybreak_blue" }`. The standard `gpt-6-sol` model remains available without Daybreak.
 
 ## Use classifier models
 

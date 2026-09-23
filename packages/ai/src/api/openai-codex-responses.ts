@@ -552,7 +552,7 @@ function buildRequestBody(
 	const initialSystemMessage = getInitialSystemMessage(context.messages);
 	const instructions = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : "";
 	const body: RequestBody = {
-		model: model.id,
+		model: model.compat?.requestModelId ?? model.id,
 		store: false,
 		stream: true,
 		instructions: instructions || "You are a helpful assistant.",
