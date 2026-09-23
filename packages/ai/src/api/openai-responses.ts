@@ -95,6 +95,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 		supportsMaxOutputTokens: model.compat?.supportsMaxOutputTokens ?? true,
 		supportsMidConvoEffort: model.compat?.supportsMidConvoEffort ?? false,
 		accessPrograms: model.compat?.accessPrograms ?? {},
+		requestModelId: model.compat?.requestModelId ?? model.id,
 	};
 }
 

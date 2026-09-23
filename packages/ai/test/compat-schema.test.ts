@@ -25,6 +25,19 @@ describe("compatibility schemas", () => {
 		expect(rejected).toBe(false);
 	});
 
+	it("validates selectable Codex model aliases in the shared compatibility schema", () => {
+		// Arrange
+		const schema = Compile(ProviderCompatSchema);
+
+		// Act
+		const accepted = schema.Check({ requestModelId: "gpt-6-sol" });
+		const rejected = schema.Check({ requestModelId: 42 });
+
+		// Assert
+		expect(accepted).toBe(true);
+		expect(rejected).toBe(false);
+	});
+
 	it("preserves property types in the provider superset", () => {
 		expectTypeOf<ProviderCompat["supportsStore"]>().toEqualTypeOf<boolean | undefined>();
 		expectTypeOf<ProviderCompat["sessionAffinityFormat"]>().toEqualTypeOf<

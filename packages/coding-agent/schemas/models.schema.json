@@ -988,6 +988,11 @@
           "type": "number",
           "description": "vLLM scheduler priority sent as the top-level priority request field. Lower values are handled earlier and the server default is 0. Only meaningful with --scheduling-policy priority. Off by default and not set on the generated catalog."
         },
+        "requestModelId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Codex model ID sent to the backend for a selectable alias. Defaults to the model ID."
+        },
         "accessPrograms": {
           "type": "object",
           "patternProperties": {
