@@ -351,6 +351,12 @@ export const OpenAICompletionsCompatSchema = Type.Object(
 
 export const OpenAIResponsesCompatSchema = Type.Object(
 	{
+		requestModelId: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "Codex model ID sent to the backend for a selectable alias. Defaults to the model ID.",
+			}),
+		),
 		accessPrograms: Type.Optional(
 			Type.Record(Type.String({ minLength: 1 }), Type.String({ minLength: 1 }), {
 				description: "Access programs sent as the Codex access_programs request field.",

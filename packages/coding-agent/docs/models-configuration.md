@@ -144,6 +144,7 @@ Also applies to `azure-openai-responses` and `openai-codex-responses`.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `requestModelId` | string |  | Codex model ID sent to the backend for a selectable alias. Defaults to the model ID. |
 | `accessPrograms` | object |  | Access programs sent as the Codex access_programs request field. |
 | `supportsDeveloperRole` | boolean | `true` | Whether the provider supports the developer role instead of system. |
 | `supportsMidConvoSystemMessages` | boolean | `false` | Whether the exact model accepts developer or system messages after the conversation has started. When false, later system messages are folded into the leading system message. The generated catalog enables this for verified models. |
