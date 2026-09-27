@@ -24,6 +24,7 @@ import {
 	deleteAllKittyPlacements,
 	deleteKittyImage,
 	getCapabilities,
+	getKittyImageMetadata,
 	getKittyImagePlacement,
 	getKittyImagePlacementRows,
 	type ImageProtocol,
@@ -86,7 +87,7 @@ const TERMINAL_WORD_SELECTION_JOINERS = new Set(["/", "-"]);
 const wordSegmenter = getWordSegmenter();
 
 interface CachedKittyImage {
-	transmissionGeneration: number;
+	transmissionGeneration: number | undefined;
 	transmissionBytes: number;
 	estimatedDecodedBytes: number;
 }
@@ -215,6 +216,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	private imageProtocol: ImageProtocol = null;
 	private savedCapabilities?: TerminalCapabilities;
 	private readonly uploadedKittyImages = new Map<number, CachedKittyImage>();
+	private kittyImageRecoveryPending = false;
 	private selectionAnchor?: SelectionPoint;
 	private selectionFocus?: SelectionPoint;
 	private selectionGranularity: SelectionGranularity = "character";
@@ -430,13 +432,21 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	}
 
 	private prepareKittyScreen(screen: string[]): { lines: string[]; evictedImageDeletion: string } {
+		this.kittyImageRecoveryPending = false;
+		const previouslyVisibleImageIds = new Set<number>();
+		for (const line of this.previousScreen) {
+			const metadata = getKittyImageMetadata(line);
+			if (metadata) previouslyVisibleImageIds.add(metadata.imageId);
+		}
 		const visibleImageIds = new Set<number>();
+		let evictedImageDeletion = "";
 		const lines = screen.map((line) => {
 			const placement = getKittyImagePlacement(line);
 			if (!placement) return line;
 			visibleImageIds.add(placement.imageId);
 
 			const cachedImage = this.uploadedKittyImages.get(placement.imageId);
+			const reuse = cachedImage?.transmissionGeneration === placement.transmissionGeneration;
 			const nextCachedImage = {
 				transmissionGeneration: placement.transmissionGeneration,
 				transmissionBytes: placement.transmissionBytes,
@@ -445,9 +455,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			if (cachedImage) this.uploadedKittyImages.delete(placement.imageId);
 			this.uploadedKittyImages.set(placement.imageId, nextCachedImage);
 
-			return cachedImage?.transmissionGeneration === placement.transmissionGeneration
-				? placement.replacementLine
-				: line;
+			// Request errors on reuse: an upload cache cannot guarantee that pixels survive eviction.
+			const output = reuse ? placement.replacementLine.replace("\x1b_Ga=p,q=2,", "\x1b_Ga=p,q=1,") : line;
+			// One explicit placement per image lets the terminal update position and crop in place.
+			return output.replace(/\x1b_G([^;\x1b]*)(;|\x1b\\)/, (_match, controls: string, end: string) => {
+				const retained = controls.split(",").filter((control) => !control.startsWith("p="));
+				return `\x1b_G${retained.join(",")},p=1${end}`;
+			});
 		});
 
 		let cachedOffscreenImageCount = 0;
@@ -460,7 +474,12 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			cachedOffscreenDecodedBytes += cachedImage.estimatedDecodedBytes;
 		}
 
-		let evictedImageDeletion = "";
+		for (const imageId of previouslyVisibleImageIds) {
+			const cached = this.uploadedKittyImages.get(imageId);
+			if (cached && !visibleImageIds.has(imageId)) {
+				evictedImageDeletion += `\x1b_Ga=d,d=i,i=${imageId},q=2\x1b\\`;
+			}
+		}
 		for (const [imageId, cachedImage] of this.uploadedKittyImages) {
 			if (
 				cachedOffscreenImageCount <= MAX_CACHED_OFFSCREEN_KITTY_IMAGES &&
@@ -480,6 +499,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	}
 
 	protected override resetRenderState(): void {
+		this.kittyImageRecoveryPending = false;
 		this.previousScreen = [];
 		this.previousScreenWidth = 0;
 		this.previousScreenHeight = 0;
@@ -676,6 +696,26 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 	}
 
 	private handleViewportInput(data: string): { consume?: boolean } | undefined {
+		const graphicsReply = /^\x1b_G([^;]*);([^\x1b]*)\x1b\\$/.exec(data);
+		if (graphicsReply) {
+			const imageIdText = /(?:^|,)i=(\d{1,10})(?:,|$)/.exec(graphicsReply[1])?.[1];
+			const imageId = imageIdText === undefined ? undefined : Number(imageIdText);
+			if (
+				this.imageProtocol === "kitty" &&
+				imageId !== undefined &&
+				imageId > 0 &&
+				imageId <= 0xffffffff &&
+				/^ENOENT(?::|$)/.test(graphicsReply[2])
+			) {
+				const cached = this.uploadedKittyImages.get(imageId);
+				if (cached?.transmissionGeneration !== undefined) {
+					cached.transmissionGeneration = undefined;
+					this.kittyImageRecoveryPending = true;
+					this.requestRender();
+				}
+			}
+			return { consume: true };
+		}
 		if (data === FOCUS_OUT) {
 			const hadActiveSelection = this.selectionPressActive;
 			const hadNonEmptyActiveSelection = hadActiveSelection && this.getSelectionBounds() !== undefined;
@@ -1718,7 +1758,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 				}
 				return false;
 			});
-		const imagesNeedRedraw = imageAnchorsNeedRedraw || imageCellsNeedRedraw;
+		const imagesNeedRedraw = this.kittyImageRecoveryPending || imageAnchorsNeedRedraw || imageCellsNeedRedraw;
 		const redrawImages = fullRedraw || imagesNeedRedraw;
 		const hadUploadedKittyImages = this.uploadedKittyImages.size > 0;
 		const preparedKittyScreen =
@@ -1736,9 +1776,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			buffer += `${clearImages}\x1b[2J`;
 		} else if (imagesNeedRedraw) {
 			if (this.imageProtocol === "iterm2") buffer += "\x1b[2J";
-			else if (this.imageProtocol === "kitty") buffer += deleteAllKittyPlacements();
 		}
-		buffer += preparedKittyScreen.evictedImageDeletion;
 
 		// WezTerm erases intersecting Kitty image cells when a later row write touches a covered row.
 		// Draw image placements after every clear and text write so nothing later intersects them; preserve
@@ -1767,6 +1805,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 			}
 		}
 
+		buffer += preparedKittyScreen.evictedImageDeletion;
 		if (cursorPos) {
 			buffer += `\x1b[${cursorPos.row + 1};${Math.min(width, cursorPos.col) + 1}H`;
 			buffer += this.getShowHardwareCursor() ? "\x1b[?25h" : "\x1b[?25l";
