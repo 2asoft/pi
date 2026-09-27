@@ -1100,11 +1100,12 @@ describe("TuiAltScreen", () => {
 				.filter((event): event is { type: "write"; data: string } => event.type === "write")
 				.map((event) => event.data)
 				.join("");
-			const placementIndex = redrawWrites.indexOf("\x1b_Ga=p,q=2");
-			assert.ok(redrawWrites.includes("\x1b_Ga=d,d=a,q=2\x1b\\"));
+			const placementIndex = redrawWrites.indexOf("\x1b_Ga=p,q=1");
+			assert.ok(!redrawWrites.includes("\x1b_Ga=d,d=a,q=2\x1b\\"));
+			assert.match(redrawWrites, /\x1b_Ga=p,q=1,[^\x1b]*p=1\x1b\\/);
 			assert.ok(placementIndex > redrawWrites.indexOf("changed"));
 			assert.ok(!redrawWrites.includes("\x1b_Ga=T"));
-			assert.ok(redrawWrites.length < 2000, `expected placement-only redraw, got ${redrawWrites.length} bytes`);
+			assert.ok(redrawWrites.length < 2000);
 			assert.ok(terminal.getViewport().some((line) => line.trimEnd() === "changed"));
 			tui.stop();
 		} finally {
@@ -1112,7 +1113,7 @@ describe("TuiAltScreen", () => {
 		}
 	});
 
-	it("retains recently offscreen Kitty images for placement-only reuse", async () => {
+	it("reuses recently offscreen Kitty images and requests missing-image errors on reentry", async () => {
 		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
 		try {
 			const terminal = new RecordingTerminal(20, 1);
@@ -1143,11 +1144,80 @@ describe("TuiAltScreen", () => {
 				.filter((event): event is { type: "write"; data: string } => event.type === "write")
 				.map((event) => event.data)
 				.join("");
-			assert.ok(reentryWrites.includes("\x1b_Ga=p,q=2"));
 			assert.ok(!reentryWrites.includes("\x1b_Ga=T"));
+			assert.match(reentryWrites, /\x1b_Ga=p,q=1,[^\x1b]*i=321[^\x1b]*p=1/);
 			assert.ok(!reentryWrites.includes(`\x1b_Ga=d,d=I,i=${imageId},q=2\x1b\\`));
 			tui.stop();
 		} finally {
+			resetCapabilitiesCache();
+		}
+	});
+
+	it("updates the source crop without retransmitting image pixels", async () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		const terminal = new RecordingTerminal(20, 2);
+		const tui = new TuiAltScreen(terminal);
+		try {
+			const imageId = 723;
+			registerKittyImageMetadata({ imageId, columns: 2, rows: 4, widthPx: 100, heightPx: 100 });
+			const imageLine = encodeKitty("AAAA", { columns: 2, rows: 4, imageId, moveCursor: false });
+			tui.setLayoutRoot(
+				new ScrollView({ render: () => [imageLine, "", "", "", "after"], invalidate: () => {} }, { primary: true }),
+			);
+			tui.start();
+			await terminal.waitForRender();
+			const eventCount = terminal.events.length;
+			tui.scrollBy(1);
+			await terminal.waitForRender();
+			const writes = terminal.events
+				.slice(eventCount)
+				.filter((event): event is { type: "write"; data: string } => event.type === "write")
+				.map((event) => event.data)
+				.join("");
+			assert.ok(!writes.includes("\x1b_Ga=T"));
+			assert.ok(writes.includes("y=25,h=50,r=2"));
+			assert.match(writes, /\x1b_Ga=p,q=1,[^\x1b]*i=723[^\x1b]*p=1/);
+		} finally {
+			tui.stop();
+			resetCapabilitiesCache();
+		}
+	});
+
+	it("recovers a missing Kitty image without retransmitting healthy visible images", async () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
+		const terminal = new RecordingTerminal(20, 3);
+		const tui = new TuiAltScreen(terminal);
+		try {
+			const imageLines = [721, 722].map((imageId) => {
+				registerKittyImageMetadata({ imageId, columns: 2, rows: 1, widthPx: 10, heightPx: 10 });
+				return encodeKitty("AAAA", { columns: 2, rows: 1, imageId, moveCursor: false });
+			});
+			tui.addChild({ render: () => imageLines, invalidate: () => {} });
+			tui.start();
+			await terminal.waitForRender();
+			const eventCount = terminal.events.length;
+			terminal.sendInput("\x1b_Gi=721;ENOENT:unknown image id\x1b\\");
+			terminal.sendInput("\x1b_Gi=721;ENOENT:unknown image id\x1b\\");
+			await terminal.waitForRender();
+			const writes = terminal.events
+				.slice(eventCount)
+				.filter((event): event is { type: "write"; data: string } => event.type === "write")
+				.map((event) => event.data)
+				.join("");
+			assert.match(writes, /\x1b_Ga=T[^;]*;AAAA\x1b\\/);
+			assert.ok(!writes.includes(imageLines[1]));
+			assert.match(writes, /\x1b_Ga=p,q=1,[^;]*i=722/);
+			assert.strictEqual(writes.split("\x1b_Ga=T").length - 1, 1);
+			assert.match(writes, /\x1b_Ga=T[^;]*i=721[^;]*p=1;AAAA/);
+			assert.ok(!writes.includes("\x1b_Ga=d"));
+
+			const recoveredEventCount = terminal.events.length;
+			terminal.sendInput("\x1b_Gi=721;ENOSPC:no space\x1b\\");
+			terminal.sendInput("\x1b_Gi=999;ENOENT:unknown image id\x1b\\");
+			await terminal.waitForRender();
+			assert.strictEqual(terminal.events.length, recoveredEventCount);
+		} finally {
+			tui.stop();
 			resetCapabilitiesCache();
 		}
 	});
