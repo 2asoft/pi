@@ -91,6 +91,8 @@ Do not list host-provided packages in `dependencies`. A physical copy can bypass
 
 Installed packages load with separate module roots. Do not rely on two packages sharing one dependency instance or one package resolving another package’s undeclared dependency.
 
+Standalone Bun builds disable process-wide `package.json` autoload. Jiti resolves ordinary extension package imports using their dependency metadata. Some native `createRequire` calls and trailing-slash package-directory imports can still fail in compiled Bun. Verify each dependency tree in the actual standalone binary, not only Node or uncompiled Bun. Binary tests use non-index dependency entries and check that native metadata autoload remains disabled; an `index.cjs` fallback can hide missing metadata resolution.
+
 ## Select package resources
 
 The object form in settings narrows which resources load from a package:
