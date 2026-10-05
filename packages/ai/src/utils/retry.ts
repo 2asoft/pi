@@ -253,5 +253,12 @@ export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN.test(errorMessage)) return false;
+	// Codex can reject a valid request with this generic response, then accept an unchanged retry.
+	if (
+		message.api === "openai-codex-responses" &&
+		/^\s*\{\s*"detail"\s*:\s*"Bad Request"\s*\}\s*$/.test(errorMessage)
+	) {
+		return true;
+	}
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
 }

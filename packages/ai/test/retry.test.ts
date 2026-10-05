@@ -34,6 +34,43 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("retries Codex's generic Bad Request through the existing retry policy", async () => {
+		// Arrange
+		const failure = {
+			...fauxAssistantMessage("", { stopReason: "error", errorMessage: '{"detail":"Bad Request"}' }),
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+		};
+		const produce = vi.fn().mockResolvedValueOnce(failure).mockResolvedValueOnce(fauxAssistantMessage("recovered"));
+		const onRetryScheduled = vi.fn();
+
+		// Act
+		const result = await retryAssistantCall(produce, { enabled: true, maxRetries: 3, baseDelayMs: 0 }, undefined, {
+			onRetryScheduled,
+		});
+
+		// Assert
+		expect(result.content).toEqual([{ type: "text", text: "recovered" }]);
+		expect(produce).toHaveBeenCalledTimes(2);
+		expect(onRetryScheduled).toHaveBeenCalledWith(1, 3, 0, failure.errorMessage);
+	});
+
+	it.each([
+		["openai-responses", '{"detail":"Bad Request"}'],
+		["openai-codex-responses", '{"detail":"Invalid tool schema"}'],
+		["openai-codex-responses", '{"detail":"Bad Request","error":"invalid input"}'],
+		["openai-codex-responses", "400 Bad Request: invalid input"],
+	])("keeps detailed or non-Codex bad requests terminal: %s %s", (api, errorMessage) => {
+		// Arrange
+		const failure = { ...fauxAssistantMessage("", { stopReason: "error", errorMessage }), api };
+
+		// Act
+		const retryable = isRetryableAssistantError(failure);
+
+		// Assert
+		expect(retryable).toBe(false);
+	});
+
 	it("matches Bun fetch socket drop wording", () => {
 		expect(
 			isRetryableAssistantError(
