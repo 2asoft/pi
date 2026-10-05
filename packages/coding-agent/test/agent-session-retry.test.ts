@@ -57,6 +57,7 @@ describe("AgentSession retry", () => {
 
 	async function createSession(options?: {
 		failCount?: number;
+		failure?: Partial<AssistantMessage>;
 		maxRetries?: number;
 		maxAgentDelayMs?: number;
 		delayAssistantMessageEndMs?: number;
@@ -79,6 +80,7 @@ describe("AgentSession retry", () => {
 						const msg = createAssistantMessage("", {
 							stopReason: "error",
 							errorMessage: "overloaded_error",
+							...options?.failure,
 						});
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
@@ -134,6 +136,35 @@ describe("AgentSession retry", () => {
 
 		expect(created.getCallCount()).toBe(2);
 		expect(events).toEqual(["start:1", "end:success=true"]);
+		expect(created.session.isRetrying).toBe(false);
+	});
+
+	it.each([
+		{ failCount: 1, calls: 2, success: true },
+		{ failCount: 99, calls: 3, success: false },
+	])("applies the existing retry budget to Codex Bad Request: $success", async ({ failCount, calls, success }) => {
+		// Arrange
+		const created = await createSession({
+			failCount,
+			maxRetries: 2,
+			failure: {
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				errorMessage: '{"detail":"Bad Request"}',
+			},
+		});
+		const events: string[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") events.push(`start:${event.attempt}`);
+			if (event.type === "auto_retry_end") events.push(`end:success=${event.success}`);
+		});
+
+		// Act
+		await created.session.prompt("Test");
+
+		// Assert
+		expect(created.getCallCount()).toBe(calls);
+		expect(events).toEqual(success ? ["start:1", "end:success=true"] : ["start:1", "start:2", "end:success=false"]);
 		expect(created.session.isRetrying).toBe(false);
 	});
 
